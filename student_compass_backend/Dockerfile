@@ -1,0 +1,33 @@
+# ---------- Base Image ----------
+FROM python:3.12-slim
+
+# ---------- Environment Variables ----------
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# ---------- Set Working Directory ----------
+WORKDIR /app
+
+# ---------- System Dependencies ----------
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------- Install Python Dependencies ----------
+COPY requirements.txt /app/
+RUN pip install --upgrade pip \
+    && pip install -r requirements.txt
+
+# ---------- Copy Project ----------
+COPY . /app/
+
+# ---------- Collect Static Files ----------
+RUN python manage.py collectstatic --noinput
+
+# ---------- Expose Port ----------
+EXPOSE 8000
+
+# ---------- Run Server ----------
+CMD ["gunicorn", "student_compass.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]

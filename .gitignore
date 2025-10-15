@@ -1,0 +1,38 @@
+student_compass_frontend/node_modules
+student_compass_frontend/.env   
+student_compass_frontend/dist
+student_compass_frontend/package-lock.json
+
+# Python
+student_compass_backend/__pycache__/
+student_compass_backend/**/*.py[cod]
+student_compass_backend/**/*.pyo
+student_compass_backend/**/*.pyd
+
+# Virtual environment
+student_compass_backend/venv/
+
+# Environment variables
+student_compass_backend/.env
+student_compass_backend/.env.*
+
+
+# Logs and caches
+student_compass_backend/*.log
+student_compass_backend/tmp/
+student_compass_backend/*.tmp
+student_compass_backend/.cache/
+
+# IDEs
+student_compass_backend/.vscode/
+student_compass_backend/.idea/
+student_compass_backend/*.sublime-project
+student_compass_backend/*.sublime-workspace
+
+# OS files
+student_compass_backend/.DS_Store
+student_compass_backend/Thumbs.db
+student_compass_backend/.coverage
+student_compass_backend/htmlcov/
+student_compass_backend/.tox/
+student_compass_backend/pytest_cache/

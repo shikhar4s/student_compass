@@ -36,3 +36,5 @@ student_compass_backend/.coverage
 student_compass_backend/htmlcov/
 student_compass_backend/.tox/
 student_compass_backend/pytest_cache/
+
+.env

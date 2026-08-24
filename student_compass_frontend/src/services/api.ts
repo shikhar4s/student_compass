@@ -1,4 +1,13 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+const API_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+
+const getErrorMessage = (payload: unknown): string => {
+  if (!payload || typeof payload !== 'object') return 'Request failed. Please try again.';
+  const data = payload as Record<string, unknown>;
+  if (typeof data.detail === 'string') return data.detail;
+  if (typeof data.message === 'string') return data.message;
+  const firstFieldError = Object.values(data).find((value) => Array.isArray(value) && typeof value[0] === 'string');
+  return Array.isArray(firstFieldError) ? firstFieldError[0] : 'Request failed. Please try again.';
+};
 
 class ApiService {
   private token: string | null = null;
@@ -21,9 +30,9 @@ class ApiService {
   }
 
   private async request(endpoint: string, options: RequestInit = {}) {
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      ...(options.headers as Record<string, string> | undefined),
     };
 
     if (this.token) {
@@ -36,11 +45,13 @@ class ApiService {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'An error occurred' }));
-      throw new Error(error.detail || error.message || 'Request failed');
+      const errorPayload: unknown = await response.json().catch(() => null);
+      throw new Error(getErrorMessage(errorPayload));
     }
 
-    return response.json();
+    if (response.status === 204) return null;
+    const contentType = response.headers.get('content-type');
+    return contentType?.includes('application/json') ? response.json() : response.text();
   }
 
   async signup(email: string, password: string, fullName: string) {
@@ -131,7 +142,7 @@ class ApiService {
     });
   }
 
-  async updateHabit(id: string, data: any) {
+  async updateHabit(id: string, data: Record<string, unknown>) {
     return this.request(`/habits/${id}/`, {
       method: 'PATCH',
       body: JSON.stringify(data),

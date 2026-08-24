@@ -131,12 +131,17 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 return Response({'detail': 'Message content cannot be empty.'}, status=status.HTTP_400_BAD_REQUEST)
 
             # Save the user's new message first
-            Message.objects.create(conversation=conversation, role='user', content=user_content)
+            user_message = Message.objects.create(
+                conversation=conversation,
+                role='user',
+                content=user_content,
+            )
 
             # Prepare the full history *before* the new message for the chat session
             history = []
-            # We fetch all messages EXCEPT the one we just added
-            message_queryset = conversation.messages.order_by('created_at').exclude(content=user_content, role='user')
+            # Exclude only the message that was just created. Filtering by
+            # content removed every earlier message with the same text.
+            message_queryset = conversation.messages.order_by('created_at').exclude(pk=user_message.pk)
             for msg in message_queryset:
                 role = 'model' if msg.role == 'assistant' else 'user'
                 history.append({'role': role, 'parts': [msg.content]})

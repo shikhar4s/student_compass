@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
@@ -7,11 +7,12 @@ import { MoodTracker } from './pages/MoodTracker';
 import { Chatbot } from './pages/Chatbot';
 import { HabitTracker } from './pages/HabitTracker';
 import { Journal } from './pages/Journal';
+import { AppShell, type AppPage } from './components/AppShell';
 
 function AppContent() {
   const { user, loading } = useAuth();
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
-  const [currentPage, setCurrentPage] = useState<'dashboard' | 'mood' | 'chat' | 'habits' | 'journal'>('dashboard');
+  const [currentPage, setCurrentPage] = useState<AppPage | 'chat'>('dashboard');
   const [chatState, setChatState] = useState<{ moodId: string; moodType: string } | null>(null);
 
   const handleStartChat = (moodId: string, moodType: string) => {
@@ -24,11 +25,7 @@ function AppContent() {
     setCurrentPage('dashboard');
   };
 
-  const handleNavigate = (page: string) => {
-    if (page === 'mood' || page === 'habits' || page === 'journal') {
-      setCurrentPage(page as any);
-    }
-  };
+  const handleNavigate = (page: AppPage) => setCurrentPage(page);
 
   if (loading) {
     return (
@@ -46,10 +43,6 @@ function AppContent() {
     );
   }
 
-  if (currentPage === 'mood') {
-    return <MoodTracker onStartChat={handleStartChat} />;
-  }
-
   if (currentPage === 'chat' && chatState) {
     return (
       <Chatbot
@@ -60,35 +53,15 @@ function AppContent() {
     );
   }
 
-  if (currentPage === 'habits') {
-    return (
-      <div className="relative">
-        <button
-          onClick={() => setCurrentPage('dashboard')}
-          className="fixed top-6 left-6 z-50 px-4 py-2 bg-white text-gray-700 rounded-lg shadow-lg hover:bg-gray-50 transition"
-        >
-          ← Back to Dashboard
-        </button>
-        <HabitTracker />
-      </div>
-    );
-  }
-
-  if (currentPage === 'journal') {
-    return (
-      <div className="relative">
-        <button
-          onClick={() => setCurrentPage('dashboard')}
-          className="fixed top-6 left-6 z-50 px-4 py-2 bg-white text-gray-700 rounded-lg shadow-lg hover:bg-gray-50 transition"
-        >
-          ← Back to Dashboard
-        </button>
-        <Journal />
-      </div>
-    );
-  }
-
-  return <Dashboard onNavigate={handleNavigate} />;
+  const shellPage: AppPage = currentPage === 'chat' ? 'dashboard' : currentPage;
+  return (
+    <AppShell currentPage={shellPage} onNavigate={handleNavigate}>
+      {currentPage === 'dashboard' ? <Dashboard onNavigate={handleNavigate} /> : null}
+      {currentPage === 'mood' ? <MoodTracker onStartChat={handleStartChat} /> : null}
+      {currentPage === 'habits' ? <HabitTracker /> : null}
+      {currentPage === 'journal' ? <Journal /> : null}
+    </AppShell>
+  );
 }
 
 function App() {

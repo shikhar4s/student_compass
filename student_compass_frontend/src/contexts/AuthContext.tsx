@@ -10,13 +10,20 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: any }>;
-  signIn: (email: string, password: string) => Promise<{ error: any }>;
+  signUp: (email: string, password: string, fullName: string) => Promise<AuthResult>;
+  signIn: (email: string, password: string) => Promise<AuthResult>;
   signOut: () => Promise<void>;
+}
+
+interface AuthResult {
+  error: { message: string } | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// The hook intentionally lives beside its provider so authentication stays a
+// single public module for this small application.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -39,7 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         const userData = await api.getCurrentUser();
         setUser(userData);
-      } catch (error) {
+      } catch {
         api.setToken(null);
         setUser(null);
       }
@@ -51,8 +58,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await api.signup(email, password, fullName);
       return { error: null };
-    } catch (error: any) {
-      return { error: { message: error.message } };
+    } catch (error: unknown) {
+      return { error: { message: error instanceof Error ? error.message : 'Account creation failed.' } };
     }
   };
 
@@ -61,14 +68,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const data = await api.login(email, password);
       setUser(data.user);
       return { error: null };
-    } catch (error: any) {
-      return { error: { message: error.message } };
+    } catch (error: unknown) {
+      return { error: { message: error instanceof Error ? error.message : 'Sign in failed.' } };
     }
   };
 
   const signOut = async () => {
     try {
       await api.logout();
+    } catch {
+      // The local session should still end if the server is unavailable.
     } finally {
       setUser(null);
     }

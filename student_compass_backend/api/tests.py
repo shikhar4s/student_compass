@@ -55,12 +55,17 @@ class UserDataTests(APITestCase):
         self.assertEqual(removed.status_code, status.HTTP_200_OK)
         self.assertFalse(HabitCompletion.objects.filter(habit=habit).exists())
 
-    def test_mood_context_becomes_the_opening_chat_message(self):
+    @patch('api.views.genai.GenerativeModel')
+    def test_mood_context_gets_a_contextual_aura_reply(self, mock_model):
         mood = Mood.objects.create(
             user=self.user,
             mood_type='Frustrated',
             intensity=4,
-            note='My project deadline is making me feel overwhelmed.',
+            note='Everyone at my company received a bonus except me.',
+        )
+        mock_model.return_value.generate_content.return_value.text = (
+            'Being the only person left out of the bonus would feel unfair and frustrating. '
+            'Did your manager explain why you were not included?'
         )
 
         response = self.client.post(
@@ -75,7 +80,11 @@ class UserDataTests(APITestCase):
         self.assertEqual(messages[0].role, 'user')
         self.assertEqual(messages[0].content, mood.note)
         self.assertEqual(messages[1].role, 'assistant')
-        self.assertIn('sharing that context', messages[1].content)
+        self.assertIn('left out of the bonus', messages[1].content)
+        prompt = mock_model.return_value.generate_content.call_args.args[0]
+        self.assertIn('Mood: Frustrated', prompt)
+        self.assertIn('Intensity: 4/5', prompt)
+        self.assertIn(mood.note, prompt)
 
     @patch('api.views.genai.GenerativeModel')
     def test_aura_uses_current_gemini_model_and_returns_ai_reply(self, mock_model):

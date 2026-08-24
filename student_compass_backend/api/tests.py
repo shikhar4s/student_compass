@@ -1,9 +1,11 @@
+from unittest.mock import ANY, patch
+
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import Habit, HabitCompletion, JournalEntry
+from .models import Conversation, Habit, HabitCompletion, JournalEntry, Message, Mood
 
 
 class AuthenticationTests(APITestCase):
@@ -52,6 +54,23 @@ class UserDataTests(APITestCase):
         removed = self.client.post(url, {'date': '2026-08-24'}, format='json')
         self.assertEqual(removed.status_code, status.HTTP_200_OK)
         self.assertFalse(HabitCompletion.objects.filter(habit=habit).exists())
+
+    @patch('api.views.genai.GenerativeModel')
+    def test_aura_uses_current_gemini_model_and_returns_ai_reply(self, mock_model):
+        mood = Mood.objects.create(user=self.user, mood_type='Happy')
+        conversation = Conversation.objects.create(user=self.user, mood=mood)
+        Message.objects.create(conversation=conversation, role='assistant', content='How are you feeling?')
+        mock_model.return_value.start_chat.return_value.send_message.return_value.text = 'I am here with you.'
+
+        response = self.client.post(
+            reverse('conversation-manage-messages', args=[conversation.pk]),
+            {'content': 'I had a good day.'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_model.assert_called_once_with('models/gemini-3.6-flash', system_instruction=ANY)
+        self.assertEqual(response.data[-1]['content'], 'I am here with you.')
 
     def test_user_cannot_delete_another_users_journal_entry(self):
         other_user = get_user_model().objects.create_user(

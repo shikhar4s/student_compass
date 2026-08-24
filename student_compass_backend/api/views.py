@@ -153,9 +153,12 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 mood_type = conversation.mood.mood_type if conversation.mood else 'neutral'
                 system_prompt = self.get_system_prompt(mood_type)
                 
-                # 1. Initialize the model WITH the system instruction, as per your reference.
+                # Use the same current Gemini model as PaperIQ. Keep it configurable
+                # so future model retirements do not require another code change.
+                model_name = config('GEMINI_MODEL', default='gemini-3.6-flash')
+                model_name = model_name.removeprefix('models/')
                 model = genai.GenerativeModel(
-                    'models/gemini-2.5-pro',
+                    f'models/{model_name}',
                     system_instruction=system_prompt
                 )
                 

@@ -92,14 +92,28 @@ class ConversationViewSet(viewsets.ModelViewSet):
         conversation = serializer.save(user=self.request.user)
         mood_type = mood_instance.mood_type if mood_instance else 'neutral'
 
-        initial_message_content = self.get_initial_message(mood_type)
+        # A mood check-in's optional note is the student's opening message.
+        # Keeping it in the conversation makes the "Add context" field visible
+        # in chat and includes it in Aura's history for every later response.
+        mood_note = (mood_instance.note or '').strip() if mood_instance else ''
+        if mood_note:
+            Message.objects.create(
+                conversation=conversation,
+                role='user',
+                content=mood_note,
+            )
+
+        initial_message_content = self.get_initial_message(mood_type, has_context=bool(mood_note))
         Message.objects.create(
             conversation=conversation,
             role='assistant',
             content=initial_message_content
         )
 
-    def get_initial_message(self, mood_type):
+    def get_initial_message(self, mood_type, has_context=False):
+        if has_context:
+            return "Thank you for sharing that context. I'm listening — what part of it feels most important to you right now? 💜"
+
         messages = {
             'Happy': "That's wonderful to hear! I'm so glad you're feeling happy today. What's bringing you this joy? 😊",
             'Sad': "I'm here for you. It's completely okay to feel sad sometimes. Would you like to talk about what's on your mind? 💙",

@@ -69,3 +69,84 @@ class UserDataTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertTrue(JournalEntry.objects.filter(pk=entry.pk).exists())
+
+    def test_private_journal_requires_password_and_hides_content(self):
+        url = reverse('journal-list')
+        missing_password = self.client.post(
+            url,
+            {'title': 'Private thought', 'content': 'A protected reflection', 'is_locked': True},
+            format='json',
+        )
+        self.assertEqual(missing_password.status_code, status.HTTP_400_BAD_REQUEST)
+
+        created = self.client.post(
+            url,
+            {
+                'title': 'Private thought',
+                'content': 'A protected reflection',
+                'is_locked': True,
+                'lock_password': '4321',
+            },
+            format='json',
+        )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(created.data['content'], '')
+        self.assertNotIn('lock_password', created.data)
+        self.assertNotIn('lock_password_hash', created.data)
+
+        entry = JournalEntry.objects.get(pk=created.data['id'])
+        self.assertNotEqual(entry.lock_password_hash, '4321')
+
+        listed = self.client.get(url)
+        self.assertEqual(listed.data[0]['content'], '')
+        self.assertFalse(listed.data[0]['is_unlocked'])
+
+    def test_private_journal_unlock_checks_password(self):
+        created = self.client.post(
+            reverse('journal-list'),
+            {
+                'title': 'Private thought',
+                'content': 'A protected reflection',
+                'is_locked': True,
+                'lock_password': '4321',
+            },
+            format='json',
+        )
+        unlock_url = reverse('journal-unlock', args=[created.data['id']])
+
+        rejected = self.client.post(unlock_url, {'password': 'wrong'}, format='json')
+        self.assertEqual(rejected.status_code, status.HTTP_400_BAD_REQUEST)
+
+        unlocked = self.client.post(unlock_url, {'password': '4321'}, format='json')
+        self.assertEqual(unlocked.status_code, status.HTTP_200_OK)
+        self.assertEqual(unlocked.data['content'], 'A protected reflection')
+        self.assertTrue(unlocked.data['is_unlocked'])
+
+    def test_legacy_locked_journal_stays_locked_and_can_be_upgraded(self):
+        entry = JournalEntry.objects.create(
+            user=self.user,
+            title='Legacy private entry',
+            content='Content from before journal passwords existed.',
+            is_locked=True,
+        )
+
+        listed = self.client.get(reverse('journal-list'))
+        self.assertTrue(listed.data[0]['is_locked'])
+        self.assertTrue(listed.data[0]['is_unlocked'])
+        self.assertEqual(listed.data[0]['content'], entry.content)
+
+        upgraded = self.client.patch(
+            reverse('journal-detail', args=[entry.pk]),
+            {
+                'title': entry.title,
+                'content': entry.content,
+                'is_locked': True,
+                'lock_password': '2468',
+            },
+            format='json',
+        )
+        self.assertEqual(upgraded.status_code, status.HTTP_200_OK)
+        self.assertEqual(upgraded.data['content'], '')
+
+        entry.refresh_from_db()
+        self.assertTrue(entry.lock_password_hash)

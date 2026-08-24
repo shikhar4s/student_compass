@@ -170,25 +170,34 @@ class ApiService {
     return this.request('/journal/');
   }
 
-  async createJournalEntry(title: string, content: string, isLocked: boolean = false) {
+  async createJournalEntry(title: string, content: string, isLocked: boolean = false, lockPassword: string = '') {
     return this.request('/journal/', {
       method: 'POST',
       body: JSON.stringify({
         title,
         content,
         is_locked: isLocked,
+        lock_password: lockPassword,
       }),
     });
   }
 
-  async updateJournalEntry(id: string, title: string, content: string, isLocked: boolean = false) {
+  async updateJournalEntry(id: string, title: string, content: string, isLocked: boolean = false, lockPassword: string = '') {
     return this.request(`/journal/${id}/`, {
       method: 'PATCH',
       body: JSON.stringify({
         title,
         content,
         is_locked: isLocked,
+        lock_password: lockPassword,
       }),
+    });
+  }
+
+  async unlockJournalEntry(id: string, password: string) {
+    return this.request(`/journal/${id}/unlock/`, {
+      method: 'POST',
+      body: JSON.stringify({ password }),
     });
   }
 

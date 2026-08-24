@@ -82,6 +82,7 @@ class JournalEntry(models.Model):
     content = models.TextField()
     sentiment = models.CharField(max_length=50, blank=True, null=True)
     is_locked = models.BooleanField(default=False)
+    lock_password_hash = models.CharField(max_length=128, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
+from django.contrib.auth.hashers import check_password
 import google.generativeai as genai
 from decouple import config
 from .models import Mood, Conversation, Message, Habit, HabitCompletion, JournalEntry
@@ -239,3 +240,26 @@ class JournalEntryViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def unlock(self, request, pk=None):
+        entry = self.get_object()
+        if not entry.is_locked or not entry.lock_password_hash:
+            data = self.get_serializer(entry).data
+            data['content'] = entry.content
+            data['sentiment'] = entry.sentiment
+            data['is_unlocked'] = True
+            return Response(data)
+
+        password = request.data.get('password', '')
+        if not password or not check_password(password, entry.lock_password_hash):
+            return Response(
+                {'password': ['Incorrect journal password.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = self.get_serializer(entry).data
+        data['content'] = entry.content
+        data['sentiment'] = entry.sentiment
+        data['is_unlocked'] = True
+        return Response(data)

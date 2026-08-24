@@ -103,17 +103,17 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 content=mood_note,
             )
 
-        initial_message_content = self.get_initial_message(mood_type, has_context=bool(mood_note))
+        if mood_note:
+            initial_message_content = self.get_contextual_message(mood_instance, mood_note)
+        else:
+            initial_message_content = self.get_initial_message(mood_type)
         Message.objects.create(
             conversation=conversation,
             role='assistant',
             content=initial_message_content
         )
 
-    def get_initial_message(self, mood_type, has_context=False):
-        if has_context:
-            return "Thank you for sharing that context. I'm listening — what part of it feels most important to you right now? 💜"
-
+    def get_initial_message(self, mood_type):
         messages = {
             'Happy': "That's wonderful to hear! I'm so glad you're feeling happy today. What's bringing you this joy? 😊",
             'Sad': "I'm here for you. It's completely okay to feel sad sometimes. Would you like to talk about what's on your mind? 💙",
@@ -123,6 +123,38 @@ class ConversationViewSet(viewsets.ModelViewSet):
             'Disappointed': "I hear you. Disappointment is a heavy feeling. Let's talk about it. What happened that didn't go as planned? 😞",
         }
         return messages.get(mood_type, "Hello! I'm Aura, your personal companion. How can I support you today?")
+
+    def get_contextual_message(self, mood, mood_note):
+        try:
+            system_prompt = (
+                f"{self.get_system_prompt(mood.mood_type)} "
+                "This is the first reply to a mood check-in. Respond directly to the "
+                "specific situation the student described. Briefly name or reflect the "
+                "situation, validate why their selected feeling makes sense, and ask one "
+                "helpful, specific follow-up question. Do not give a generic acknowledgment."
+            )
+            model_name = config('GEMINI_MODEL', default='gemini-3.6-flash').removeprefix('models/')
+            model = genai.GenerativeModel(
+                f'models/{model_name}',
+                system_instruction=system_prompt,
+            )
+            response = model.generate_content(
+                f"Mood: {mood.mood_type}\nIntensity: {mood.intensity}/5\nContext: {mood_note}"
+            )
+            if response.text and response.text.strip():
+                return response.text.strip()
+        except Exception as e:
+            logger.error(f"GEMINI INITIAL MOOD RESPONSE FAILED for mood {mood.pk}: {e}")
+
+        fallbacks = {
+            'Happy': "It makes sense that this has left you feeling happy. What about this moment would you most like to hold on to? 😊",
+            'Sad': "It makes sense that this situation has left you feeling sad. What kind of support would feel most helpful right now? 💙",
+            'Angry': "It makes sense that this situation has made you angry. Would you like to unpack what felt most unfair or hurtful?",
+            'Depressed': "That sounds very heavy, and you do not have to carry it alone. Is there someone you trust who you could reach out to today? 💙",
+            'Frustrated': "That situation sounds genuinely frustrating. What outcome would feel fair or helpful to you now?",
+            'Disappointed': "It makes sense that this situation has left you disappointed. What were you hoping would happen instead?",
+        }
+        return fallbacks.get(mood.mood_type, "That sounds difficult. What would feel most helpful to talk through first?")
 
     def get_system_prompt(self, mood_type):
         base = "You are an empathetic AI companion for students named 'Aura'. Your goal is to provide emotional support, validation, and gentle guidance. Your personality is warm, patient, and encouraging. Keep your responses concise and easy to understand. Use emojis where appropriate to convey warmth. Never give medical advice or diagnoses. Always prioritize listening and validating the user's feelings."

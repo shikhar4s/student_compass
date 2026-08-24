@@ -55,6 +55,28 @@ class UserDataTests(APITestCase):
         self.assertEqual(removed.status_code, status.HTTP_200_OK)
         self.assertFalse(HabitCompletion.objects.filter(habit=habit).exists())
 
+    def test_mood_context_becomes_the_opening_chat_message(self):
+        mood = Mood.objects.create(
+            user=self.user,
+            mood_type='Frustrated',
+            intensity=4,
+            note='My project deadline is making me feel overwhelmed.',
+        )
+
+        response = self.client.post(
+            reverse('conversation-list'),
+            {'mood': mood.pk, 'title': 'Frustrated check-in'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        messages = Message.objects.filter(conversation_id=response.data['id'])
+        self.assertEqual(messages.count(), 2)
+        self.assertEqual(messages[0].role, 'user')
+        self.assertEqual(messages[0].content, mood.note)
+        self.assertEqual(messages[1].role, 'assistant')
+        self.assertIn('sharing that context', messages[1].content)
+
     @patch('api.views.genai.GenerativeModel')
     def test_aura_uses_current_gemini_model_and_returns_ai_reply(self, mock_model):
         mood = Mood.objects.create(user=self.user, mood_type='Happy')

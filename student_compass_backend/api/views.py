@@ -1,4 +1,5 @@
 import logging
+import requests
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
@@ -6,24 +7,43 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import check_password
-import google.generativeai as genai
 from decouple import config
 from .models import Mood, Conversation, Message, Habit, HabitCompletion, JournalEntry
 from .serializers import (
     UserSerializer, SignupSerializer, MoodSerializer, ConversationSerializer,
     MessageSerializer, HabitSerializer, HabitCompletionSerializer, JournalEntrySerializer
 )
-from google.generativeai import types
 
-
-# Configure Gemini using the API key from your .env file
-try:
-    genai.configure(api_key=config('GEMINI_API_KEY'))
-except Exception as e:
-    logging.critical(f"GEMINI API KEY NOT FOUND OR INVALID: {e}. Please check your .env file.")
 
 # Setup logging for better debugging
 logger = logging.getLogger(__name__)
+
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+
+def generate_aura_response(system_prompt, messages):
+    """Generate a concise, mood-aware Aura reply through Groq's OpenAI-compatible API."""
+    api_key = config('GROQ_API_KEY')
+    response = requests.post(
+        GROQ_API_URL,
+        headers={
+            "Authorization": f"Bearer ${api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": config('GROQ_MODEL', default='openai/gpt-oss-20b'),
+            "messages": [{"role": "system", "content": system_prompt}, *messages],
+            "temperature": 0.7,
+            "max_completion_tokens": 320,
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    content = response.json()["choices"][0]["message"]["content"]
+    if not content or not content.strip():
+        raise ValueError("Groq returned an empty response")
+    return content.strip()
+
 
 # --- Authentication Views (No changes needed) ---
 
@@ -128,23 +148,24 @@ class ConversationViewSet(viewsets.ModelViewSet):
         try:
             system_prompt = (
                 f"{self.get_system_prompt(mood.mood_type)} "
-                "This is the first reply to a mood check-in. Respond directly to the "
-                "specific situation the student described. Briefly name or reflect the "
-                "situation, validate why their selected feeling makes sense, and ask one "
-                "helpful, specific follow-up question. Do not give a generic acknowledgment."
+                "This is the first reply to a mood check-in. Address the student's exact "
+                "situation first—not with a generic question. Briefly reflect what happened, "
+                "validate why their selected feeling fits, then offer one practical next step "
+                "or one specific follow-up question."
             )
-            model_name = config('GEMINI_MODEL', default='gemini-3.6-flash').removeprefix('models/')
-            model = genai.GenerativeModel(
-                f'models/{model_name}',
-                system_instruction=system_prompt,
+            return generate_aura_response(
+                system_prompt,
+                [{
+                    "role": "user",
+                    "content": (
+                        f"Mood: {mood.mood_type}\n"
+                        f"Intensity: {mood.intensity}/5\n"
+                        f"Context: {mood_note}"
+                    ),
+                }],
             )
-            response = model.generate_content(
-                f"Mood: {mood.mood_type}\nIntensity: {mood.intensity}/5\nContext: {mood_note}"
-            )
-            if response.text and response.text.strip():
-                return response.text.strip()
-        except Exception as e:
-            logger.error(f"GEMINI INITIAL MOOD RESPONSE FAILED for mood {mood.pk}: {e}")
+        except Exception as exc:
+            logger.error("GROQ INITIAL MOOD RESPONSE FAILED for mood %s: %s", mood.pk, exc)
 
         fallbacks = {
             'Happy': "It makes sense that this has left you feeling happy. What about this moment would you most like to hold on to? 😊",
@@ -157,7 +178,14 @@ class ConversationViewSet(viewsets.ModelViewSet):
         return fallbacks.get(mood.mood_type, "That sounds difficult. What would feel most helpful to talk through first?")
 
     def get_system_prompt(self, mood_type):
-        base = "You are an empathetic AI companion for students named 'Aura'. Your goal is to provide emotional support, validation, and gentle guidance. Your personality is warm, patient, and encouraging. Keep your responses concise and easy to understand. Use emojis where appropriate to convey warmth. Never give medical advice or diagnoses. Always prioritize listening and validating the user's feelings."
+        base = (
+            "You are Aura, an empathetic AI companion for students. Give warm, concise, "
+            "context-aware emotional support and gentle, practical guidance. Use the student's "
+            "selected mood and their actual words in every reply; do not make generic replies "
+            "when the situation is clear. Do not diagnose or give medical advice. If they mention "
+            "immediate danger, self-harm, or being unsafe, encourage contacting local emergency "
+            "services or a trusted person immediately. Avoid judgment and toxic positivity."
+        )
         prompts = {
             'Happy': f"{base} The student is feeling happy. Celebrate their positive emotions, be enthusiastic with them, and encourage them to savor the moment.",
             'Sad': f"{base} The student is sad. Be very gentle and compassionate. Offer a listening ear and validate their feelings. Avoid toxic positivity.",
@@ -195,29 +223,27 @@ class ConversationViewSet(viewsets.ModelViewSet):
             
             ai_response_content = ""
             try:
-                # --- START OF FIX ---
                 mood_type = conversation.mood.mood_type if conversation.mood else 'neutral'
                 system_prompt = self.get_system_prompt(mood_type)
-                
-                # Use the same current Gemini model as PaperIQ. Keep it configurable
-                # so future model retirements do not require another code change.
-                model_name = config('GEMINI_MODEL', default='gemini-3.6-flash')
-                model_name = model_name.removeprefix('models/')
-                model = genai.GenerativeModel(
-                    f'models/{model_name}',
-                    system_instruction=system_prompt
-                )
-                
-                # 2. Start a stateful chat session using the existing history from the DB.
-                chat = model.start_chat(history=history)
-                
-                # 3. Send ONLY the new user message to the ongoing chat session.
-                response = chat.send_message(user_content)
-                ai_response_content = response.text
-                # --- END OF FIX ---
 
-            except Exception as e:
-                logger.error(f"GEMINI API CALL FAILED for conversation {pk}: {e}")
+                # Keep recent conversation context for coherent replies while
+                # avoiding unnecessary token use on the free provider tier.
+                recent_messages = list(
+                    conversation.messages.order_by('-created_at').exclude(pk=user_message.pk)[:24]
+                )
+                recent_messages.reverse()
+                chat_messages = [
+                    {
+                        "role": "assistant" if msg.role == "assistant" else "user",
+                        "content": msg.content,
+                    }
+                    for msg in recent_messages
+                ]
+                chat_messages.append({"role": "user", "content": user_content})
+                ai_response_content = generate_aura_response(system_prompt, chat_messages)
+
+            except Exception as exc:
+                logger.error("GROQ API CALL FAILED for conversation %s: %s", pk, exc)
                 ai_response_content = "I'm sorry, I'm having a little trouble connecting right now. Please give me a moment and try again."
 
             # Save the AI's response to the database

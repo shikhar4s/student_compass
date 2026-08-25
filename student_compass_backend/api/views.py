@@ -27,7 +27,7 @@ def generate_aura_response(system_prompt, messages):
     response = requests.post(
         GROQ_API_URL,
         headers={
-            "Authorization": f"Bearer ${api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
         json={
